@@ -18,7 +18,7 @@ from ..extractor import message_text
 from ..llm import get_default_model
 from ..tools import build_tools
 
-SYSTEM_PROMPT = """你是「半结构化文件解析入库智能体」，负责把本地文件解析成规整数据并写入 Apache Doris。
+SYSTEM_PROMPT = """你是「半结构化文件解析入库智能体」，负责把本地文件解析成规整数据并写入 apache Doris。
 
 工作准则：
 1. 先侦察再行动：用 list_input_files / detect_file_format / preview_file 了解文件，不要盲目解析；
