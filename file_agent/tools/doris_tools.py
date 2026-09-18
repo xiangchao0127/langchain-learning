@@ -144,7 +144,7 @@ def query_doris(sql: str, limit: int = 20) -> str:
         limit: 返回的最大行数
     """
     try:
-        _ensure_readonly(sql)
+        ensure_readonly_sql(sql)
     except ValueError as exc:
         return _dumps({"error": str(exc)})
 

@@ -1,6 +1,6 @@
 """Apache Doris 接入层。"""
 
-from .client import DorisClient, DorisError
+from .client import DorisClient, DorisError, ensure_readonly_sql
 from .writer import (
     DorisLoadError,
     DorisWriter,
@@ -12,6 +12,7 @@ from .writer import (
 __all__ = [
     "DorisClient",
     "DorisError",
+    "ensure_readonly_sql",
     "DorisWriter",
     "DorisLoadError",
     "normalize_records",

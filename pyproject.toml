@@ -23,6 +23,10 @@ dependencies = [
     "PyYAML>=6.0",
     "chardet>=5.2",
     "requests>=2.32",
+    # Web 服务（上传文件并联入库的交互页面）
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "python-multipart>=0.0.15",
 ]
 
 [project.optional-dependencies]

@@ -16,8 +16,20 @@ from ..config import DorisSettings, get_doris_settings
 from ..schemas import TableSpec
 
 
+_READONLY_PREFIXES = ("select", "show", "desc", "describe", "explain", "with")
+
+
 class DorisError(RuntimeError):
     """Doris 操作异常。"""
+
+
+def ensure_readonly_sql(sql: str) -> str:
+    """校验 SQL 为只读语句，否则抛出 ``ValueError``；返回去除首尾空白后的语句。"""
+    statement = (sql or "").strip()
+    head = statement.split(maxsplit=1)[0].lower() if statement else ""
+    if head not in _READONLY_PREFIXES:
+        raise ValueError("出于安全考虑，仅允许只读查询（SELECT / SHOW / DESC / EXPLAIN）")
+    return statement
 
 
 class DorisClient:

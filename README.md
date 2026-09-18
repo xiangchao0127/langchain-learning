@@ -19,6 +19,7 @@
 | 表结构推断 | 优先复用 `config/tables.yaml`，其次 LLM 推断，最后规则兜底 |
 | 高性能入库 | Doris Stream Load（自动跟随 FE→BE 重定向）优先，失败熔断降级到 MySQL 批量 INSERT |
 | 智能体 | 用自然语言驱动（基于 LangGraph 的 `create_agent`） |
+| Web 界面 | 浏览器内拖拽上传 → 预览 → 入库，含演练模式与结果查询 |
 
 ---
 
@@ -46,6 +47,7 @@ langchain-learning/
     ├── doris/                 # Doris 客户端 + 写入器
     ├── tools/                 # LangChain 工具集（11 个工具）
     ├── agent/graph.py         # LangGraph 智能体
+    ├── web/                   # FastAPI 服务 + 交互式 Web 界面
     └── cli.py                 # 命令行入口
 ```
 
@@ -157,6 +159,9 @@ python main.py agent "把 examples/sample_data 下的文件全部解析并入库
 
 # 交互模式
 python main.py chat
+
+# 启动 Web 界面（浏览器内上传入库）
+python main.py serve --port 8000
 ```
 
 `load` 常用参数：
@@ -169,6 +174,48 @@ python main.py chat
 | `--dry-run` | 只生成 DDL 与统计，不写库 |
 | `--force-extract` | 即使字段已对齐也走一次 LLM 抽取 |
 | `--no-llm` | 完全禁用 LLM，使用纯规则模式 |
+
+---
+
+## Web 界面
+
+```bash
+python main.py serve --port 8000
+```
+
+浏览器打开 `http://127.0.0.1:8000`，API 文档在 `http://127.0.0.1:8000/docs`。
+
+界面按五步推进，每一步完成后才解锁下一步：
+
+| 步骤 | 说明 |
+| --- | --- |
+| ① 上传文件 | 拖拽或点击选择，也可用内置示例数据一键体验 |
+| ② 解析预览 | 自动识别格式，展示样例记录与列结构 |
+| ③ 目标表结构 | 智能推断 / 规则推断可切换，可指定目标表，可展开查看 DDL |
+| ④ 执行入库 | 选择写入方式；**默认「仅演练」**，取消勾选才真正写库 |
+| ⑤ 执行结果 | 展示行数统计；非演练模式可一键查询前 10 行验证 |
+
+行为说明：
+
+- 上传文件保存在 `.output/uploads/`（已被 git 忽略），单文件上限 100 MB
+- 仅接受 JSON / JSONL / CSV / TSV / YAML / LOG / TXT 等数据类扩展名
+- 默认只监听 `127.0.0.1`；如需局域网访问用 `--host 0.0.0.0`，
+  但那时**没有任何鉴权**，请只在可信网络中使用
+- 查询接口仅放行 `SELECT / SHOW / DESC / EXPLAIN`，写操作会被拒绝
+
+### HTTP 接口
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/health` | LLM / Doris 状态与已声明目标表 |
+| GET | `/api/samples` | 内置示例数据列表 |
+| POST | `/api/sample` | 直接使用示例文件（免上传） |
+| POST | `/api/upload` | 上传文件（multipart） |
+| POST | `/api/parse` | 解析并返回列与样例记录 |
+| POST | `/api/schema` | 推断或复用目标表结构 + 建表 DDL |
+| POST | `/api/ingest` | 执行入库（支持 dry-run） |
+| GET | `/api/tables` | 已声明的目标表及其结构 |
+| POST | `/api/query` | 只读查询（仅 SELECT / SHOW / DESC / EXPLAIN） |
 
 ---
 

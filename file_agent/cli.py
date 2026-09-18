@@ -8,6 +8,7 @@
     python main.py load   examples/sample_data/orders.jsonl --dry-run
     python main.py agent  "把 examples/sample_data 下的文件都解析并入库"
     python main.py chat
+    python main.py serve --port 8000
 """
 
 from __future__ import annotations
@@ -225,6 +226,35 @@ def cmd_chat(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    try:
+        import uvicorn
+    except ImportError:
+        print(
+            "未安装 Web 依赖，请先执行：\n"
+            "    pip install fastapi \"uvicorn[standard]\" python-multipart",
+            file=sys.stderr,
+        )
+        return 1
+
+    host: str = args.host
+    port: int = args.port
+    display_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
+
+    print(f"Web 界面已启动：http://{display_host}:{port}")
+    print("API 文档：      {}/docs".format(f"http://{display_host}:{port}"))
+    print("按 Ctrl+C 停止\n")
+
+    if args.reload:
+        # reload 模式必须传 import 字符串
+        uvicorn.run("file_agent.web.app:app", host=host, port=port, reload=True)
+    else:
+        from .web.app import app as application
+
+        uvicorn.run(application, host=host, port=port)
+    return 0
+
+
 # --------------------------------------------------------------------------- #
 # 参数解析
 # --------------------------------------------------------------------------- #
@@ -278,6 +308,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_chat = sub.add_parser("chat", help="进入智能体交互模式")
     p_chat.set_defaults(func=cmd_chat)
+
+    p_serve = sub.add_parser("serve", help="启动 Web 界面：上传文件 → 解析 → 入库 Doris")
+    p_serve.add_argument("--host", default="127.0.0.1", help="监听地址（默认 127.0.0.1）")
+    p_serve.add_argument("--port", type=int, default=8000, help="监听端口（默认 8000）")
+    p_serve.add_argument("--reload", action="store_true", help="开发模式：代码变更自动重启")
+    p_serve.set_defaults(func=cmd_serve)
 
     return parser
 
