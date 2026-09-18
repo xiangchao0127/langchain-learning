@@ -1,0 +1,128 @@
+# ===========================================================================
+# 半结构化文件 -> Apache Doris 目标表定义
+#
+# 用途：
+#   1. 显式声明「来源文件 → 目标表」的字段映射，智能体优先使用这里的定义；
+#   2. source_patterns 让文件按名称自动路由到目标表（支持 glob 通配符）；
+#   3. 未匹配到声明时，由 LLM / 启发式规则自动推断表结构（见 file_agent/schemas.py）。
+#
+# dtype 直接写 Doris 类型：VARCHAR(n) / STRING / TEXT / INT / BIGINT / DOUBLE /
+# LARGEINT / DECIMAL(p,s) / DATE / DATETIME / BOOLEAN / JSON
+#
+# ⚠ 字段定义请使用下面的 block（缩进）写法，不要用 { } 行内写法：
+#   YAML 的 flow 集合用逗号分隔键值对，DECIMAL(18,2) 里的逗号会被截断，
+#   导致类型退化成 STRING。
+# ===========================================================================
+
+version: 1
+
+tables:
+  # ---------------- 示例一：订单事件（对应 examples/sample_data/orders.jsonl） ----------------
+  - name: ods_order_events
+    comment: "订单事件明细表（半结构化 JSONL 解析入库）"
+    source_patterns: ["orders*.jsonl", "orders*.json", "order_events*"]
+    columns:
+      - name: order_id
+        dtype: VARCHAR(64)
+        nullable: false
+        comment: "订单号"
+      - name: user_id
+        dtype: VARCHAR(64)
+        nullable: true
+        comment: "用户ID"
+      - name: sku
+        dtype: VARCHAR(128)
+        nullable: true
+        comment: "商品编码"
+      - name: qty
+        dtype: INT
+        nullable: true
+        comment: "数量"
+      - name: amount
+        dtype: DECIMAL(18,2)
+        nullable: true
+        comment: "金额"
+      - name: currency
+        dtype: VARCHAR(8)
+        nullable: true
+        comment: "币种"
+      - name: status
+        dtype: VARCHAR(32)
+        nullable: true
+        comment: "订单状态"
+      - name: created_at
+        dtype: DATETIME
+        nullable: true
+        comment: "创建时间"
+    unique_key: [order_id]
+    distributed_by: [order_id]
+    buckets: 4
+    properties:
+      replication_allocation: "tag.location.default: 1"
+      enable_unique_key_merge_on_write: "true"
+
+  # ---------------- 示例二：应用日志（对应 examples/sample_data/app.log） ----------------
+  - name: ods_app_log
+    comment: "应用日志明细表（半结构化文本解析入库）"
+    source_patterns: ["app*.log", "*service*.log", "*.log"]
+    columns:
+      - name: log_time
+        dtype: DATETIME
+        nullable: true
+        comment: "日志时间"
+      - name: level
+        dtype: VARCHAR(16)
+        nullable: true
+        comment: "日志级别"
+      - name: logger
+        dtype: VARCHAR(255)
+        nullable: true
+        comment: "日志来源"
+      - name: message
+        dtype: TEXT
+        nullable: true
+        comment: "日志内容"
+      - name: source
+        dtype: VARCHAR(255)
+        nullable: true
+        comment: "来源文件"
+    distributed_by: []
+    buckets: 4
+    properties:
+      replication_allocation: "tag.location.default: 1"
+
+  # ---------------- 示例三：设备状态（对应 examples/sample_data/devices.csv） ----------------
+  - name: ods_device_status
+    comment: "设备状态快照表（CSV 解析入库）"
+    source_patterns: ["devices*.csv", "device_*.csv"]
+    columns:
+      - name: device_sn
+        dtype: VARCHAR(64)
+        nullable: false
+        comment: "设备序列号"
+      - name: model
+        dtype: VARCHAR(64)
+        nullable: true
+        comment: "设备型号"
+      - name: region
+        dtype: VARCHAR(64)
+        nullable: true
+        comment: "所属区域"
+      - name: online
+        dtype: BOOLEAN
+        nullable: true
+        comment: "是否在线"
+      - name: temperature
+        dtype: DOUBLE
+        nullable: true
+        comment: "温度"
+      - name: updated_at
+        dtype: DATETIME
+        nullable: true
+        comment: "采集时间"
+    unique_key: [device_sn]
+    distributed_by: [device_sn]
+    buckets: 4
+    properties:
+      replication_allocation: "tag.location.default: 1"
+      enable_unique_key_merge_on_write: "true"

@@ -1,0 +1,15 @@
+2026-09-18 10:12:31,204 INFO  [http-nio-8080-exec-1] c.e.order.OrderService - 创建订单成功 orderId=SO20260918001 amount=199.0
+2026-09-18 10:15:02,881 INFO  [http-nio-8080-exec-3] c.e.order.OrderService - 创建订单成功 orderId=SO20260918002 amount=89.5
+2026-09-18 10:31:47,015 WARN  [http-nio-8080-exec-5] c.e.pay.PayCallback - 收到重复支付回调 orderId=SO20260918003, 已忽略
+2026-09-18 10:31:47,120 INFO  [http-nio-8080-exec-5] c.e.order.OrderService - 订单状态更新为 refunded orderId=SO20260918003
+2026-09-18 11:02:10,443 INFO  [http-nio-8080-exec-7] c.e.order.OrderService - 创建订单成功 orderId=SO20260918004 amount=1299.0
+2026-09-18 11:20:55,671 ERROR [http-nio-8080-exec-9] c.e.stock.StockService - 扣减库存失败 orderId=SO20260918005 sku=SKU-2003
+java.sql.SQLTransientConnectionException: HikariPool-1 - Connection is not available, request timed out after 30000ms.
+	at com.zaxxer.hikari.pool.HikariPool.createTimeoutException(HikariPool.java:696)
+	at com.zaxxer.hikari.pool.HikariPool.getConnection(HikariPool.java:197)
+2026-09-18 11:20:56,002 INFO  [http-nio-8080-exec-9] c.e.order.OrderService - 库存不足，订单转人工处理 orderId=SO20260918005
+2026-09-18 12:05:03,338 INFO  [http-nio-8080-exec-2] c.e.order.OrderService - 用户取消订单 orderId=SO20260918006
+2026-09-18 12:44:18,905 INFO  [http-nio-8080-exec-4] c.e.order.OrderService - 创建订单成功 orderId=SO20260918007 amount=398.0
+2026-09-18 13:10:26,517 INFO  [http-nio-8080-exec-6] c.e.order.OrderService - 创建订单成功 orderId=SO20260918008 amount=1299.0
+2026-09-18 13:22:41,760 DEBUG [scheduling-1] c.e.task.SettleTask - 日终结算任务开始
+2026-09-18 13:22:43,118 DEBUG [scheduling-1] c.e.task.SettleTask - 日终结算任务结束, 处理订单 8 笔

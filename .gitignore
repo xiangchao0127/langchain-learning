@@ -1,0 +1,37 @@
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# ---------- 虚拟环境 ----------
+.venv/
+venv/
+env/
+
+# ---------- 密钥 / 本地配置 ----------
+.env
+.env.local
+.env.*.local
+
+# ---------- IDE ----------
+.idea/
+.vscode/
+*.swp
+
+# ---------- 运行产物 ----------
+.output/
+*.tmp
+
+# ---------- 测试 / 缓存 ----------
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+
+# ---------- 日志（保留示例日志） ----------
+*.log
+!examples/sample_data/*.log
