@@ -22,7 +22,13 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from ..config import PROJECT_ROOT, get_doris_settings, get_llm_settings, get_runtime_settings
+from ..config import (
+    BUNDLE_DIR,
+    PROJECT_ROOT,
+    get_doris_settings,
+    get_llm_settings,
+    get_runtime_settings,
+)
 from ..doris import DorisClient, DorisWriter, ensure_readonly_sql
 from ..loaders import file_meta
 from ..parsers import build_default_registry
@@ -31,7 +37,15 @@ from ..schemas import LoadMode
 from ..table_config import get_table_spec, list_table_names
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-SAMPLE_DIR = PROJECT_ROOT / "examples" / "sample_data"
+
+
+def _resolve_sample_dir() -> Path:
+    """示例数据优先取 exe 同级目录，回落到随包分发的那份。"""
+    user_dir = PROJECT_ROOT / "examples" / "sample_data"
+    return user_dir if user_dir.is_dir() else BUNDLE_DIR / "examples" / "sample_data"
+
+
+SAMPLE_DIR = _resolve_sample_dir()
 
 # 上传文件 ID 固定为 uuid4 的十六进制串，借此杜绝路径穿越
 _FILE_ID_RE = re.compile(r"^[0-9a-f]{32}$")

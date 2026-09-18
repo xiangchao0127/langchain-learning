@@ -327,6 +327,45 @@ Doris 值规范化、流水线路由，以及智能体「模型 → 工具 → �
 
 ---
 
+## 打包成 Windows exe
+
+```bash
+pip install pyinstaller
+pyinstaller FileAgent.spec --noconfirm
+```
+
+产物在 `dist/FileAgent/`（约 49 MB），把**整个目录**拷贝给他人即可运行：
+
+```
+dist/FileAgent/
+├── FileAgent.exe     # 双击即启动服务并自动打开浏览器
+├── .env              # 首次运行自动释放：数据库与大模型配置
+├── config/           # 首次运行自动释放：目标表结构定义
+└── _internal/        # 依赖运行库（不要删）
+```
+
+**运行方式**
+
+| 场景 | 命令 |
+| --- | --- |
+| 普通使用 | 双击 `FileAgent.exe` |
+| 指定端口 | `FileAgent.exe serve --port 9000` |
+| 不自动开浏览器 | `FileAgent.exe serve --no-browser` |
+| 命令行工具 | `FileAgent.exe doctor` / `load` / `parse` / `agent` |
+| 查看帮助 | `FileAgent.exe --help` |
+
+**配置优先级**：exe 同级目录的 `.env` 与 `config/tables.yaml` 优先；不存在时回落到随包内置的默认值。
+首次启动会自动把内置配置释放到同级目录，编辑后重启即可生效。
+
+> ⚠️ **安全提醒**
+> 内置配置会随 exe 一起分发，其中的 API Key 与数据库口令对拿到文件的人完全可见。
+> 建议：为分发单独申请**受限权限**的账号；分发完成后轮换密钥；不要把 exe 放到公网可下载的位置。
+
+**关于体积**：`FileAgent.spec` 里排除了 `numpy`、`langchain_community`、`sqlalchemy` 等未使用的重依赖
+（当前 49 MB）。如果后续功能用到了它们，从 `excludes` 中移除对应项重新打包即可。
+
+---
+
 ## 常见问题
 
 **Q：没有 Doris 环境能验证吗？**

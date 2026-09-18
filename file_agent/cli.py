@@ -16,9 +16,16 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import threading
+import webbrowser
 from pathlib import Path
 
-from .config import get_doris_settings, get_llm_settings
+from .config import (
+    ensure_user_config,
+    get_doris_settings,
+    get_llm_settings,
+    is_frozen,
+)
 from .loaders import file_meta
 from .parsers import build_default_registry
 from .pipeline import available_tables, resolve_table_spec, run_pipeline, table_name_from_path
@@ -240,12 +247,22 @@ def cmd_serve(args: argparse.Namespace) -> int:
     host: str = args.host
     port: int = args.port
     display_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
+    url = f"http://{display_host}:{port}"
 
-    print(f"Web 界面已启动：http://{display_host}:{port}")
-    print("API 文档：      {}/docs".format(f"http://{display_host}:{port}"))
+    print(f"Web 界面已启动：{url}")
+    print(f"API 文档：      {url}/docs")
     print("按 Ctrl+C 停止\n")
 
-    if args.reload:
+    reload_enabled = bool(args.reload)
+    if reload_enabled and is_frozen():
+        print("[提示] 打包环境下 --reload 不可用，已忽略", file=sys.stderr)
+        reload_enabled = False
+
+    if not getattr(args, "no_browser", False):
+        # 稍等片刻再打开，避免服务尚未就绪时访问被拒
+        threading.Timer(1.5, lambda: webbrowser.open(url)).start()
+
+    if reload_enabled:
         # reload 模式必须传 import 字符串
         uvicorn.run("file_agent.web.app:app", host=host, port=port, reload=True)
     else:
@@ -313,6 +330,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_serve.add_argument("--host", default="127.0.0.1", help="监听地址（默认 127.0.0.1）")
     p_serve.add_argument("--port", type=int, default=8000, help="监听端口（默认 8000）")
     p_serve.add_argument("--reload", action="store_true", help="开发模式：代码变更自动重启")
+    p_serve.add_argument(
+        "--no-browser", action="store_true", help="启动后不自动打开浏览器"
+    )
     p_serve.set_defaults(func=cmd_serve)
 
     return parser
@@ -320,8 +340,22 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     _configure_stdout()
+
+    # 打包运行时：首次启动把内置配置释放到 exe 同级目录，便于用户修改
+    created = ensure_user_config()
+    if created:
+        print("[初始化] 已释放内置配置到程序目录：")
+        for path in created:
+            print(f"  - {path}")
+        print()
+
+    args_list = list(sys.argv[1:] if argv is None else argv)
+    # 双击 exe（无任何参数）时默认启动 Web 界面
+    if not args_list:
+        args_list = ["serve"]
+
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(args_list)
     return args.func(args)
 
 
