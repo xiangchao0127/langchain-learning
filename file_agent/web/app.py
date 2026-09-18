@@ -9,14 +9,16 @@
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
+import threading
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from fastapi import APIRouter, FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -43,6 +45,26 @@ ALLOWED_SUFFIXES = {
 }
 
 _REGISTRY = build_default_registry()
+
+# ── 智能体会话 ───────────────────────────────────────────────────────────────
+# 会话消息保存在进程内存中，多 worker 部署时需要换成 Redis 等共享存储。
+_SESSION_RE = re.compile(r"^[0-9a-f]{32}$")
+_SESSION_STORE: dict[str, list[Any]] = {}
+_MAX_SESSIONS = 50
+_AGENT: Any = None
+_LOCK = threading.Lock()
+
+
+def get_agent():
+    """惰性构建智能体并在进程内复用（首次调用需要有效的 LLM 配置）。"""
+    global _AGENT
+    if _AGENT is None:
+        with _LOCK:
+            if _AGENT is None:
+                from ..agent import build_agent
+
+                _AGENT = build_agent()
+    return _AGENT
 
 
 # --------------------------------------------------------------------------- #
@@ -113,6 +135,15 @@ class QueryRequest(BaseModel):
 
 class SampleRequest(BaseModel):
     name: str
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=8000)
+    session_id: str = ""
+
+
+class ChatResetRequest(BaseModel):
+    session_id: str = ""
 
 
 # --------------------------------------------------------------------------- #
@@ -324,6 +355,145 @@ def query(req: QueryRequest) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return {"row_count": len(rows), "rows": rows[: req.limit]}
+
+
+@router.post("/chat")
+def chat(req: ChatRequest) -> dict[str, Any]:
+    """与智能体对话，由模型自主决定调用哪些工具。"""
+    from ..agent import run_agent
+
+    message = req.message.strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="消息不能为空")
+
+    session_id = (
+        req.session_id if _SESSION_RE.match(req.session_id or "") else uuid.uuid4().hex
+    )
+    history = list(_SESSION_STORE.get(session_id, []))
+
+    try:
+        run = run_agent(message, agent=get_agent(), history=history)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc
+
+    # 只提取本轮新增的工具调用
+    new_messages = run.messages[len(history) :] if len(run.messages) >= len(history) else run.messages
+    steps = [
+        {"name": call.get("name"), "args": call.get("args")}
+        for msg in new_messages
+        for call in (getattr(msg, "tool_calls", None) or [])
+    ]
+
+    with _LOCK:
+        _SESSION_STORE[session_id] = run.messages
+        while len(_SESSION_STORE) > _MAX_SESSIONS:
+            _SESSION_STORE.pop(next(iter(_SESSION_STORE)))
+
+    return {"session_id": session_id, "answer": run.answer, "steps": steps}
+
+
+@router.post("/chat/reset")
+def chat_reset(req: ChatResetRequest) -> dict[str, Any]:
+    """清空指定会话的上下文。"""
+    _SESSION_STORE.pop(req.session_id, None)
+    return {"ok": True}
+
+
+def _sse(event: str, data: Any) -> str:
+    """按 SSE 规范格式化一条事件。"""
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
+
+
+@router.post("/chat/stream")
+def chat_stream(req: ChatRequest) -> StreamingResponse:
+    """流式对话：逐 token 推送回答，并实时上报工具调用。
+
+    事件类型：
+        token  模型生成的正文片段
+        tool   一次工具调用（名称 + 参数）
+        done   结束，携带完整回答与本次所有工具调用
+        error  执行失败
+    """
+    from langchain_core.messages import AIMessageChunk, HumanMessage
+
+    from ..extractor import message_text
+    from ..schemas import to_jsonable
+
+    message = req.message.strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="消息不能为空")
+
+    session_id = (
+        req.session_id if _SESSION_RE.match(req.session_id or "") else uuid.uuid4().hex
+    )
+    history = list(_SESSION_STORE.get(session_id, []))
+
+    def generate() -> Iterator[str]:
+        try:
+            agent = get_agent()
+        except Exception as exc:  # noqa: BLE001
+            yield _sse("error", {"message": f"{type(exc).__name__}: {exc}"})
+            return
+
+        answer_parts: list[str] = []
+        steps: list[dict[str, Any]] = []
+        produced: list[Any] = []
+
+        try:
+            stream = agent.stream(
+                {"messages": [*history, HumanMessage(content=message)]},
+                stream_mode=["messages", "updates"],
+            )
+            for mode, payload in stream:
+                if mode == "messages":
+                    chunk, _meta = payload
+                    # 只推送模型生成的正文，工具返回的消息要过滤掉
+                    if not isinstance(chunk, AIMessageChunk):
+                        continue
+                    piece = message_text(chunk)
+                    if piece:
+                        answer_parts.append(piece)
+                        yield _sse("token", {"text": piece})
+                elif mode == "updates":
+                    for update in (payload or {}).values():
+                        if not isinstance(update, dict):
+                            continue
+                        for msg in update.get("messages") or []:
+                            produced.append(msg)
+                            for call in getattr(msg, "tool_calls", None) or []:
+                                step = {
+                                    "name": call.get("name"),
+                                    "args": to_jsonable(call.get("args") or {}),
+                                }
+                                steps.append(step)
+                                yield _sse("tool", step)
+        except Exception as exc:  # noqa: BLE001
+            yield _sse("error", {"message": f"{type(exc).__name__}: {exc}"})
+            return
+
+        with _LOCK:
+            _SESSION_STORE[session_id] = [*history, HumanMessage(content=message), *produced]
+            while len(_SESSION_STORE) > _MAX_SESSIONS:
+                _SESSION_STORE.pop(next(iter(_SESSION_STORE)))
+
+        yield _sse(
+            "done",
+            {
+                "session_id": session_id,
+                "answer": "".join(answer_parts),
+                "steps": steps,
+            },
+        )
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # --------------------------------------------------------------------------- #

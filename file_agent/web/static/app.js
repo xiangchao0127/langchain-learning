@@ -408,6 +408,312 @@
     }
   }
 
+  /* ─────────────────────────── 智能助手对话 ─────────────────────────── */
+  const CHAT_SUGGESTIONS = [
+    '列出 examples/sample_data 下有哪些文件，说明各自格式',
+    '把 orders.jsonl 解析并写入 Doris，完成后统计行数',
+    '检查 Doris 连接是否正常，并列出已声明的目标表',
+    '查询 ods_order_events 的前 5 行数据',
+  ];
+
+  const chat = { sessionId: '', busy: false, controller: null };
+
+  function renderMarkdown(text) {
+    let html = escapeHtml(text || '');
+
+    // 代码块先抽出来占位，避免内部内容被后续规则误处理
+    const blocks = [];
+    html = html.replace(/```[a-zA-Z]*\n?([\s\S]*?)```/g, (_, code) => {
+      blocks.push(`<pre class="md-code">${code.replace(/^\n+|\n+$/g, '')}</pre>`);
+      return `\u0001${blocks.length - 1}\u0001`;
+    });
+
+    html = html.replace(/`([^`\n]+)`/g, '<code class="md-inline">$1</code>');
+    html = html.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/^\s*#{1,4}\s*(.+)$/gm, '<div class="md-h">$1</div>');
+    html = html.replace(/^\s*[-*]\s+(.+)$/gm, '<div class="md-li">• $1</div>');
+
+    html = html.replace(/\n/g, '<br>');
+    html = html.replace(/<br>(\s*)<div class="md-/g, '$1<div class="md-');
+    html = html.replace(/<\/(div|pre)><br>/g, '</$1>');
+    html = html.replace(/\u0001(\d+)\u0001/g, (_, index) => blocks[Number(index)]);
+
+    return html;
+  }
+
+  function formatToolArgs(args) {
+    if (!args || typeof args !== 'object') return '';
+    return Object.entries(args)
+      .map(([key, value]) => `${key}=${typeof value === 'string' ? value : JSON.stringify(value)}`)
+      .join('  ');
+  }
+
+  function scrollChat(force = false) {
+    const log = $('chatLog');
+    const nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+    if (force || nearBottom) log.scrollTop = log.scrollHeight;
+  }
+
+  /** 普通气泡（用户消息 / 简单提示），返回正文元素。 */
+  function chatAppend(role, html) {
+    const log = $('chatLog');
+    const node = document.createElement('div');
+    node.className = `msg ${role}`;
+    node.innerHTML =
+      `<div class="msg-avatar">${role === 'user' ? '我' : 'AI'}</div>` +
+      `<div class="msg-body"><div class="msg-text">${html}</div></div>`;
+    log.appendChild(node);
+    scrollChat(true);
+    return node.querySelector('.msg-text');
+  }
+
+  /** 助手气泡：正文与工具轨迹分开，便于流式增量更新。 */
+  function chatBotBubble() {
+    const log = $('chatLog');
+    const node = document.createElement('div');
+    node.className = 'msg bot';
+    node.innerHTML =
+      '<div class="msg-avatar">AI</div>' +
+      '<div class="msg-body">' +
+        '<div class="msg-text streaming"></div>' +
+        '<div class="tool-trace" hidden></div>' +
+      '</div>';
+    log.appendChild(node);
+    scrollChat(true);
+    return {
+      text: node.querySelector('.msg-text'),
+      trace: node.querySelector('.tool-trace'),
+    };
+  }
+
+  function renderTrace(steps) {
+    if (!steps || !steps.length) return '';
+    return `<div class="tool-trace-title">⚙ 本轮调用了 ${steps.length} 个工具</div>` +
+      steps
+        .map((step) =>
+          `<div class="tool-item"><code>${escapeHtml(step.name)}</code>` +
+          `<span class="tool-args">${escapeHtml(formatToolArgs(step.args))}</span></div>`)
+        .join('');
+  }
+
+  function finishBubble(bubble, answer, steps, note) {
+    bubble.text.classList.remove('streaming');
+    let html = renderMarkdown(answer || '（没有返回内容）');
+    if (note) html += `<div class="chat-note">${escapeHtml(note)}</div>`;
+    bubble.text.innerHTML = html;
+    if (steps && steps.length) {
+      bubble.trace.hidden = false;
+      bubble.trace.innerHTML = renderTrace(steps);
+    }
+  }
+
+  function parseSseBlock(raw) {
+    let event = 'message';
+    const dataLines = [];
+    for (const line of raw.split(/\r?\n/)) {
+      if (line.startsWith('event:')) event = line.slice(6).trim();
+      else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+    }
+    if (!dataLines.length) return null;
+    try {
+      return { event, data: JSON.parse(dataLines.join('\n')) };
+    } catch {
+      return { event, data: {} };
+    }
+  }
+
+  /** 读取 SSE 流并逐事件回调。用 fetch 而非 EventSource，因为需要 POST。 */
+  async function readSse(response, onEvent) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+
+    const dispatch = (raw) => {
+      const parsed = parseSseBlock(raw);
+      if (parsed) onEvent(parsed.event, parsed.data);
+    };
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let index = buffer.indexOf('\n\n');
+      while (index !== -1) {
+        dispatch(buffer.slice(0, index));
+        buffer = buffer.slice(index + 2);
+        index = buffer.indexOf('\n\n');
+      }
+    }
+
+    if (buffer.trim()) dispatch(buffer);
+  }
+
+  async function sendChat(message) {
+    const text = (message || '').trim();
+    if (!text || chat.busy) return;
+
+    chat.busy = true;
+    chat.controller = new AbortController();
+    setComposerBusy(true);
+
+    chatAppend('user', escapeHtml(text).replace(/\n/g, '<br>'));
+
+    const bubble = chatBotBubble();
+    bubble.text.innerHTML = '<span class="spinner"></span> 正在思考…';
+
+    let answer = '';
+    let steps = [];
+    let streaming = false;
+
+    try {
+      const response = await fetch('/api/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, session_id: chat.sessionId }),
+        signal: chat.controller.signal,
+      });
+
+      if (!response.ok || !response.body) {
+        const raw = await response.text().catch(() => '');
+        let detail = `请求失败（HTTP ${response.status}）`;
+        try {
+          detail = JSON.parse(raw).detail || detail;
+        } catch {
+          /* 保留默认提示 */
+        }
+        throw new Error(detail);
+      }
+
+      await readSse(response, (event, data) => {
+        if (event === 'token') {
+          if (!streaming) {
+            bubble.text.innerHTML = '';
+            streaming = true;
+          }
+          answer += data.text || '';
+          bubble.text.textContent = answer;
+          scrollChat();
+        } else if (event === 'tool') {
+          steps.push(data);
+          bubble.trace.hidden = false;
+          bubble.trace.innerHTML = renderTrace(steps);
+          scrollChat();
+        } else if (event === 'done') {
+          chat.sessionId = data.session_id || chat.sessionId;
+          if (data.answer) answer = data.answer;
+          if (data.steps && data.steps.length) steps = data.steps;
+        } else if (event === 'error') {
+          throw new Error(data.message || '执行失败');
+        }
+      });
+
+      finishBubble(bubble, answer, steps, '');
+    } catch (err) {
+      if (err && err.name === 'AbortError') {
+        finishBubble(bubble, answer, steps, '已手动停止生成');
+      } else {
+        bubble.text.classList.remove('streaming');
+        bubble.text.innerHTML =
+          `<span class="msg-error">⚠ ${escapeHtml(err.message || String(err))}</span>`;
+        if (steps.length) {
+          bubble.trace.hidden = false;
+          bubble.trace.innerHTML = renderTrace(steps);
+        }
+      }
+    } finally {
+      chat.busy = false;
+      chat.controller = null;
+      setComposerBusy(false);
+      $('chatInput').focus();
+      scrollChat();
+    }
+  }
+
+  function setComposerBusy(busy) {
+    $('chatInput').disabled = busy;
+    $('btnSend').textContent = busy ? '停止' : '发送';
+    $('btnSend').classList.toggle('stopping', busy);
+  }
+
+  async function clearChat() {
+    if (chat.controller) chat.controller.abort();
+    try {
+      if (chat.sessionId) {
+        await api('/api/chat/reset', { body: { session_id: chat.sessionId } });
+      }
+    } catch {
+      /* 重置失败不影响本地清空 */
+    }
+    chat.sessionId = '';
+    $('chatLog').innerHTML = '';
+    chatAppend('bot', renderMarkdown('对话已清空。你可以继续让我侦察文件、解析入库或查询数据。'));
+  }
+
+  function autoGrow(input) {
+    input.style.height = 'auto';
+    input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
+  }
+
+  function bindChat() {
+    const input = $('chatInput');
+    const form = $('chatForm');
+    const suggest = $('chatSuggest');
+
+    suggest.innerHTML = CHAT_SUGGESTIONS
+      .map((text) =>
+        `<button type="button" class="chip" data-q="${escapeHtml(text)}">${escapeHtml(text)}</button>`)
+      .join('');
+
+    suggest.addEventListener('click', (event) => {
+      const chip = event.target.closest('.chip');
+      if (!chip) return;
+      input.value = chip.dataset.q;
+      input.focus();
+      autoGrow(input);
+    });
+
+    const submit = () => {
+      if (chat.busy) return;
+      const text = input.value;
+      input.value = '';
+      autoGrow(input);
+      sendChat(text);
+    };
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      submit();
+    });
+
+    $('btnSend').addEventListener('click', () => {
+      // 生成中再点一次即中断
+      if (chat.busy) {
+        if (chat.controller) chat.controller.abort();
+        return;
+      }
+      submit();
+    });
+
+    input.addEventListener('keydown', (event) => {
+      // isComposing：避免中文输入法选词时回车误触发送
+      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+        event.preventDefault();
+        if (!chat.busy) submit();
+      }
+    });
+
+    input.addEventListener('input', () => autoGrow(input));
+    $('btnClearChat').addEventListener('click', clearChat);
+
+    chatAppend(
+      'bot',
+      renderMarkdown(
+        '你好，我是入库智能体。可以直接用自然语言让我完成：文件侦察 → 解析 → 建表 → 入库 → 查询校验。'
+      )
+    );
+  }
+
   /* ─────────────────────────── 事件绑定 ─────────────────────────── */
   function bindDropzone() {
     const zone = $('dropzone');
@@ -439,6 +745,7 @@
 
   function init() {
     bindDropzone();
+    bindChat();
 
     $('btnReparse').addEventListener('click', doParse);
     $('btnIngest').addEventListener('click', doIngest);

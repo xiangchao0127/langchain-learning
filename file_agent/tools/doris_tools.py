@@ -8,7 +8,7 @@ from pathlib import Path
 from langchain.tools import tool
 from pydantic import ValidationError
 
-from ..doris import DorisClient, DorisWriter
+from ..doris import DorisClient, DorisWriter, ensure_readonly_sql
 from ..pipeline import run_pipeline
 from ..schemas import TableSpec
 from ..table_config import list_table_names

@@ -130,6 +130,30 @@
     <div id="resultBox"><p class="empty">执行入库后展示结果</p></div>
   </section>
 
+  <!-- ─────────────── 智能助手 ─────────────── -->
+  <section class="card" id="chatCard">
+    <div class="card-head">
+      <span class="step-no ai">AI</span>
+      <div>
+        <h2>智能助手</h2>
+        <p class="muted">用自然语言描述需求，助手会自主决定调用哪些工具</p>
+      </div>
+      <button class="btn ghost" id="btnClearChat" type="button">清空对话</button>
+    </div>
+
+    <div class="chat-log" id="chatLog"></div>
+    <div class="chat-suggest" id="chatSuggest"></div>
+
+    <form class="chat-input" id="chatForm">
+      <textarea
+        id="chatInput"
+        rows="1"
+        placeholder="例如：把 examples/sample_data 下的文件全部解析并入库，完成后统计行数（Enter 发送，Shift+Enter 换行）"
+      ></textarea>
+      <button class="btn primary" type="button" id="btnSend">发送</button>
+    </form>
+  </section>
+
 </main>
 
 <div class="toast" id="toast"></div>

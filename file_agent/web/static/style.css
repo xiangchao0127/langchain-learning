@@ -436,6 +436,178 @@ td.null { color: #cbd5e1; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .toast.error { background: #b91c1c; }
 
+/* ───────────────────────── 智能助手对话 ───────────────────────── */
+.step-no.ai {
+  background: linear-gradient(135deg, #ddd6fe, #fae8ff);
+  border-color: #e9d5ff;
+  color: #7c3aed;
+  font-size: 11px;
+}
+
+.chat-log {
+  height: 420px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  padding: 17px;
+  background: #fcfdff;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  scroll-behavior: smooth;
+}
+
+.msg { display: flex; gap: 10px; max-width: 90%; align-items: flex-start; }
+.msg.user { align-self: flex-end; flex-direction: row-reverse; }
+
+.msg-avatar {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.msg.user .msg-avatar {
+  background: linear-gradient(135deg, #2563eb, #4f46e5);
+  color: #fff;
+}
+
+.msg.bot .msg-avatar {
+  background: #eef2ff;
+  color: #4338ca;
+  border: 1px solid #e0e7ff;
+}
+
+.msg-body {
+  padding: 11px 14px;
+  border-radius: 13px;
+  font-size: 13px;
+  line-height: 1.75;
+  word-break: break-word;
+  border: 1px solid var(--border);
+  background: #fff;
+  min-width: 0;
+}
+
+.msg.user .msg-body {
+  background: linear-gradient(135deg, #2563eb, #4f46e5);
+  color: #fff;
+  border-color: transparent;
+}
+
+.msg-body .md-h { font-weight: 700; margin: 10px 0 5px; }
+.msg-body .md-h:first-child { margin-top: 0; }
+.msg-body .md-li { padding-left: 3px; }
+
+.msg-body .md-inline {
+  background: rgba(37, 99, 235, 0.1);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: Consolas, "Cascadia Mono", monospace;
+}
+
+.msg-body pre.md-code {
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 11px 13px;
+  border-radius: 9px;
+  overflow: auto;
+  font-size: 11.5px;
+  line-height: 1.65;
+  margin: 8px 0;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  white-space: pre;
+}
+
+.msg-body .msg-text { white-space: normal; }
+
+/* 流式输出时保留原始换行，结束后再换回 markdown 渲染 */
+.msg-body .msg-text.streaming { white-space: pre-wrap; }
+
+.msg-error { color: #b91c1c; font-weight: 600; }
+
+.chat-note {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  font-size: 11.5px;
+  color: #b45309;
+}
+
+.btn.primary.stopping {
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+  box-shadow: 0 8px 18px -10px rgba(220, 38, 38, 0.9);
+}
+
+.tool-trace {
+  margin-top: 11px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.tool-trace-title { font-size: 11.5px; color: var(--muted); margin-bottom: 7px; }
+
+.tool-item {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  padding: 3px 0;
+  color: #334155;
+}
+
+.tool-item code {
+  background: #eef2ff;
+  color: #4338ca;
+  padding: 1px 7px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  font-family: Consolas, "Cascadia Mono", monospace;
+}
+
+.tool-item .tool-args { color: var(--muted); font-size: 11.5px; word-break: break-all; }
+
+.chat-suggest { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 13px; }
+.chat-suggest:empty { display: none; }
+
+.chat-input { display: flex; gap: 10px; margin-top: 13px; align-items: flex-end; }
+
+.chat-input textarea {
+  flex: 1;
+  resize: none;
+  max-height: 140px;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.65;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  outline: none;
+  background: #fff;
+  color: var(--text);
+  transition: border-color 0.16s, box-shadow 0.16s;
+}
+
+.chat-input textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.chat-input textarea:disabled { background: #f8fafc; color: var(--muted); }
+
+.chat-input .btn.primary {
+  width: auto;
+  margin-top: 0;
+  flex: 0 0 auto;
+  padding: 11px 22px;
+}
+
 /* ───────────────────────── 响应式 ───────────────────────── */
 @media (max-width: 720px) {
   .topbar { padding: 20px 16px 14px; }
